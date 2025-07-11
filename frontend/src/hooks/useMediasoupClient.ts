@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import { Device } from "mediasoup-client";
 import type {
   Transport,
@@ -15,7 +15,30 @@ export function useMediasoupClient() {
   const sendTransportRef = useRef<Transport | null>(null);
   const recvTransportRef = useRef<Transport | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStreams, setRemoteStreams] = useState<MediaStream[]>([]);
+  const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
+  const [disconnectedUsers, setDisconnectedUsers] = useState<string[]>([]);
+
+  interface RemoteStream {
+    stream: MediaStream;
+    userId: string;
+    kind: "audio" | "video";
+  }
+
+  // Listen for user disconnections
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleUserDisconnected = (data: { userId: string }) => {
+      console.log("User disconnected:", data.userId);
+      setDisconnectedUsers((prev) => [...prev, data.userId]);
+    };
+
+    socket.on("user-disconnected", handleUserDisconnected);
+
+    return () => {
+      socket.off("user-disconnected", handleUserDisconnected);
+    };
+  }, [socket]);
 
   // Join or create a room
   const joinRoom = useCallback(
@@ -288,7 +311,14 @@ export function useMediasoupClient() {
               if (onStream) {
                 onStream(stream);
               } else {
-                setRemoteStreams((prev) => [...prev, stream]);
+                setRemoteStreams((prev) => [
+                  ...prev,
+                  {
+                    stream,
+                    userId: res.producerId,
+                    kind: res.kind as "audio" | "video",
+                  },
+                ]);
               }
             } catch (error) {
               console.error("Error while consuming:", error);
@@ -314,5 +344,6 @@ export function useMediasoupClient() {
     connected,
     socket,
     device: deviceRef.current,
+    disconnectedUsers,
   };
 }

@@ -3,6 +3,7 @@ import { Socket, Server as SocketIOServer } from "socket.io";
 import { config } from "./config";
 import db, { initDb } from "./db";
 import { Room } from "./room";
+import { RoomRecorder } from "./recorder";
 import { createTransport } from "./transport";
 import { createWorker } from "./worker";
 
@@ -10,6 +11,16 @@ const AUTH_TOKEN = "demo-token";
 
 const rooms: Map<string, Room> = new Map();
 let mediasoupWorker: Worker;
+const recorder = new RoomRecorder();
+
+async function createRoom(roomId: string) {
+  const router = await mediasoupWorker.createRouter({
+    mediaCodecs: config.mediasoup.router.mediaCodecs,
+  });
+  const room = new Room(roomId, router);
+  rooms.set(roomId, room);
+  return room;
+}
 
 // Initialize db on server start
 initDb();
@@ -31,20 +42,89 @@ const socketIoConnection = async (io: SocketIOServer) => {
     let currentRoom: Room | undefined;
     let peerId = socket.id;
 
+    // Handle disconnection
+    socket.on("disconnect", async () => {
+      console.log(`[Room ${currentRoom?.id}] Peer ${peerId} disconnected`);
+      if (currentRoom) {
+        try {
+          // Notify other users in the room about the disconnection
+          socket
+            .to(currentRoom.id)
+            .emit("user-disconnected", { userId: peerId });
+
+          // Remove from room
+          await currentRoom.removePeer(peerId);
+
+          // Remove from database
+          await db.read();
+          const dbRoom = db.data!.rooms.find((r) => r.id === currentRoom!.id);
+          if (dbRoom) {
+            dbRoom.users = dbRoom.users.filter((u) => u !== peerId);
+            await db.write();
+          }
+
+          // Remove user from db users if not in any room
+          const stillInRoom = db.data!.rooms.some((r) =>
+            r.users.includes(peerId)
+          );
+          if (!stillInRoom) {
+            db.data!.users = db.data!.users.filter((u) => u.id !== peerId);
+            await db.write();
+          }
+
+          // Clean up empty room
+          if (currentRoom.peers.size === 0) {
+            rooms.delete(currentRoom.id);
+            db.data!.rooms = db.data!.rooms.filter(
+              (r) => r.id !== currentRoom!.id
+            );
+            await db.write();
+          }
+        } catch (error) {
+          console.error(`Error handling disconnect for peer ${peerId}:`, error);
+        }
+      }
+    });
+
+    // Handle heartbeat
+    socket.on("heartbeat", () => {
+      if (currentRoom) {
+        currentRoom.updatePeerActivity(peerId);
+      }
+    });
+
+    // Handle peer list sync request
+    socket.on("syncPeers", (callback) => {
+      if (!currentRoom) {
+        callback({ peers: [] });
+        return;
+      }
+
+      const activePeers = Array.from(currentRoom.peers.entries())
+        .filter(([id, peer]) => {
+          const isActive =
+            Date.now() - (peer.lastSeen || 0) <
+            (currentRoom?.PEER_TIMEOUT || 0);
+          if (!isActive) {
+            console.log(
+              `[Room ${currentRoom?.id}] Peer ${id} appears inactive during sync`
+            );
+          }
+          return isActive;
+        })
+        .map(([id]) => id);
+
+      callback({ peers: activePeers });
+    });
+
     socket.on("createRoom", async ({ roomId }, callback) => {
-      if (!rooms.has(roomId)) {
-        const router = await mediasoupWorker.createRouter({
-          mediaCodecs: config.mediasoup.router.mediaCodecs,
-        });
-        const room = new Room(roomId, router);
-        rooms.set(roomId, room);
+      try {
+        const room = await createRoom(roomId);
+        callback({ created: true });
+      } catch (error) {
+        console.error("Error creating room:", error);
+        callback({ error: "Failed to create room" });
       }
-      await db.read();
-      if (!db.data!.rooms.find((r) => r.id === roomId)) {
-        db.data!.rooms.push({ id: roomId, users: [] });
-        await db.write();
-      }
-      callback({ roomId });
     });
 
     socket.on("joinRoom", async ({ roomId, token }, callback) => {
@@ -256,33 +336,49 @@ const socketIoConnection = async (io: SocketIOServer) => {
       callback(producersWithUsers);
     });
 
-    socket.on("disconnect", async () => {
-      if (currentRoom) {
-        currentRoom.removePeer(peerId);
-        // Remove user from db room
-        await db.read();
-        let dbRoom = db.data!.rooms.find((r) => r.id === currentRoom!.id);
-        if (dbRoom) {
-          dbRoom.users = dbRoom.users.filter((u) => u !== peerId);
-          await db.write();
-        }
-        // Remove user from db users if not in any room
-        const stillInRoom = db.data!.rooms.some((r) =>
-          r.users.includes(peerId)
-        );
-        if (!stillInRoom) {
-          db.data!.users = db.data!.users.filter((u) => u.id !== peerId);
-          await db.write();
-        }
-        // Clean up empty room
-        if (currentRoom.peers.size === 0) {
-          rooms.delete(currentRoom.id);
-          // Remove from db
-          db.data!.rooms = db.data!.rooms.filter(
-            (r) => r.id !== currentRoom!.id
-          );
-          await db.write();
-        }
+    // Handle recording requests
+    socket.on("startRecording", async ({ userId }, callback) => {
+      if (!currentRoom) {
+        callback({ error: "Not in a room" });
+        return;
+      }
+
+      try {
+        const recordingId = await recorder.startRecording(currentRoom, userId);
+        callback({ recordingId });
+      } catch (error) {
+        console.error("Error starting recording:", error);
+        callback({ error: "Failed to start recording" });
+      }
+    });
+
+    socket.on("stopRecording", async ({ recordingId }, callback) => {
+      try {
+        const result = await recorder.stopRecording(recordingId);
+        callback(result);
+      } catch (error) {
+        console.error("Error stopping recording:", error);
+        callback({ error: "Failed to stop recording" });
+      }
+    });
+
+    socket.on("getRecordingStatus", async ({ recordingId }, callback) => {
+      try {
+        const status = await recorder.getRecordingStatus(recordingId);
+        callback(status);
+      } catch (error) {
+        console.error("Error getting recording status:", error);
+        callback({ error: "Failed to get recording status" });
+      }
+    });
+
+    socket.on("getAllRecordings", async (callback) => {
+      try {
+        const recordings = await recorder.getAllRecordings();
+        callback(recordings);
+      } catch (error) {
+        console.error("Error getting all recordings:", error);
+        callback({ error: "Failed to get recordings" });
       }
     });
   });

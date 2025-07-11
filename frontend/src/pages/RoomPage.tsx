@@ -24,12 +24,31 @@ const RoomPage = () => {
     socket,
     consume,
     device,
+    disconnectedUsers,
   } = useMediasoupClient();
 
   const [roomId, setRoomId] = useState(searchParams.get("room") || "");
   const [joined, setJoined] = useState(false);
   const consumedProducersRef = useRef<Set<string>>(new Set());
   const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
+
+  // Handle user disconnections
+  useEffect(() => {
+    if (disconnectedUsers.length > 0) {
+      // Remove streams of disconnected users and stop their tracks
+      setRemoteStreams((prevStreams) => {
+        const remainingStreams = prevStreams.filter((stream) => {
+          const isDisconnected = disconnectedUsers.includes(stream.userId);
+          if (isDisconnected) {
+            // Stop all tracks before removing the stream
+            stream.stream.getTracks().forEach((track) => track.stop());
+          }
+          return !isDisconnected;
+        });
+        return remainingStreams;
+      });
+    }
+  }, [disconnectedUsers]);
 
   // Auto-join room if roomId is in URL
   useEffect(() => {
@@ -75,23 +94,23 @@ const RoomPage = () => {
       consumedProducersRef.current.add(producerId);
     };
 
-    console.log("Setting up newProducer listener");
     socket.on("newProducer", handleNewProducer);
 
     return () => {
-      console.log("Cleaning up newProducer listener");
       socket.off("newProducer", handleNewProducer);
     };
   }, [socket, device?.rtpCapabilities, joined, consume]);
 
-  // Group streams by user
+  // Group streams by user, excluding disconnected users
   const remoteStreamsByUser = remoteStreams.reduce<
     Record<string, { video?: MediaStream; audio?: MediaStream }>
   >((acc, { stream, userId, kind }) => {
-    if (!acc[userId]) {
-      acc[userId] = {};
+    if (!disconnectedUsers.includes(userId)) {
+      if (!acc[userId]) {
+        acc[userId] = {};
+      }
+      acc[userId][kind] = stream;
     }
-    acc[userId][kind] = stream;
     return acc;
   }, {});
 
@@ -128,8 +147,6 @@ const RoomPage = () => {
   const handleProduce = async () => {
     console.log("Starting media production");
     await produce();
-    console.log("Media production started");
-
     console.log("Media production completed successfully");
   };
 

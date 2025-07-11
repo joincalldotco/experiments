@@ -1,56 +1,91 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
+import { useSocket } from "../hooks/useSocket";
 
 interface MediaControlsProps {
-  localStream: MediaStream | null;
+  localStream: MediaStream;
 }
 
-const MediaControls = ({ localStream }: MediaControlsProps) => {
-  const [isCameraOn, setIsCameraOn] = useState(true);
-  const [isMicOn, setIsMicOn] = useState(true);
-  const localStreamRef = useRef<MediaStream | null>(null);
+export default function MediaControls({ localStream }: MediaControlsProps) {
+  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
+  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingId, setRecordingId] = useState<string | null>(null);
+  const { socket } = useSocket();
+
+  const toggleAudio = () => {
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (audioTrack) {
+      audioTrack.enabled = !audioTrack.enabled;
+      setIsAudioEnabled(audioTrack.enabled);
+    }
+  };
+
+  const toggleVideo = () => {
+    const videoTrack = localStream.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.enabled = !videoTrack.enabled;
+      setIsVideoEnabled(videoTrack.enabled);
+    }
+  };
+
+  const startRecording = () => {
+    if (!socket) return;
+    socket.emit("startRecording", { userId: socket.id }, (response: any) => {
+      if (response.error) {
+        console.error("Failed to start recording:", response.error);
+        return;
+      }
+      setRecordingId(response.recordingId);
+      setIsRecording(true);
+    });
+  };
+
+  const stopRecording = () => {
+    if (!socket || !recordingId) return;
+    socket.emit("stopRecording", { recordingId }, (response: any) => {
+      if (response.error) {
+        console.error("Failed to stop recording:", response.error);
+        return;
+      }
+      setRecordingId(null);
+      setIsRecording(false);
+    });
+  };
 
   useEffect(() => {
-    localStreamRef.current = localStream;
-  }, [localStream]);
-
-  const toggleCamera = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getVideoTracks().forEach((track) => {
-        track.enabled = !isCameraOn;
-      });
-      setIsCameraOn((prev) => !prev);
-    }
-  };
-
-  const toggleMic = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach((track) => {
-        track.enabled = !isMicOn;
-      });
-      setIsMicOn((prev) => !prev);
-    }
-  };
+    return () => {
+      if (recordingId) {
+        stopRecording();
+      }
+    };
+  }, [recordingId]);
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex gap-4 bg-white/80 rounded-lg shadow-lg px-6 py-3 z-50">
+    <div className="flex gap-2 mt-4">
       <button
         className={`px-4 py-2 rounded ${
-          isCameraOn ? "bg-green-600" : "bg-gray-400"
-        } text-white font-semibold`}
-        onClick={toggleCamera}
+          isAudioEnabled ? "bg-green-500" : "bg-red-500"
+        } text-white`}
+        onClick={toggleAudio}
       >
-        {isCameraOn ? "Turn Camera Off" : "Turn Camera On"}
+        {isAudioEnabled ? "Mute Audio" : "Unmute Audio"}
       </button>
       <button
         className={`px-4 py-2 rounded ${
-          isMicOn ? "bg-green-600" : "bg-gray-400"
-        } text-white font-semibold`}
-        onClick={toggleMic}
+          isVideoEnabled ? "bg-green-500" : "bg-red-500"
+        } text-white`}
+        onClick={toggleVideo}
       >
-        {isMicOn ? "Mute Mic" : "Unmute Mic"}
+        {isVideoEnabled ? "Stop Video" : "Start Video"}
+      </button>
+      <button
+        className={`px-4 py-2 rounded ${
+          isRecording ? "bg-red-500" : "bg-blue-500"
+        } text-white`}
+        onClick={isRecording ? stopRecording : startRecording}
+      >
+        {isRecording ? "Stop Recording" : "Start Recording"}
       </button>
     </div>
   );
-};
-
-export default MediaControls;
+}

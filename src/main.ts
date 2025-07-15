@@ -5,9 +5,9 @@ import { socketIoConnection } from "./lib/ws";
 import cors from "cors";
 import { Router, Worker } from "mediasoup/node/lib/types";
 import { startMediasoup } from "./utils/startMediasoup";
+import { createWorkers } from "./lib/worker";
 
-// Refectoring
-//
+// Experimental: Pre-create workers and routers
 export async function _main() {
   let workers: {
     worker: Worker;
@@ -35,16 +35,19 @@ export async function _main() {
     return { worker, router, state: {} };
   };
 
-  // Now we should have the websoket events here for
-  // differnt things join room, close peer, destroy room,
-  // get track, send track, connect transpoart, so on...
+  // Now we should have the websocket events here for
+  // different things: join room, close peer, destroy room,
+  // get track, send track, connect transport, etc.
 }
 
-const main = () => {
+const main = async () => {
   const app = express();
 
   // Enable CORS for Express
   app.use(cors());
+
+  // Create workers when server starts
+  await createWorkers();
 
   const server = http.createServer(app);
   const io = new SocketIOServer(server, {

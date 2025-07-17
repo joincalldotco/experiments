@@ -1,10 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { io, Socket } from "socket.io-client";
 
 const SOCKET_URL = "http://127.0.0.1:8000";
 const AUTH_TOKEN = "demo-token";
 
-export function useSocket() {
+const SocketContext = createContext<{
+  socket: Socket | null;
+  connected: boolean;
+} | null>(null);
+
+export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
   const [connected, setConnected] = useState(false);
   const socketRef = useRef<Socket | null>(null);
 
@@ -59,5 +70,17 @@ export function useSocket() {
     };
   }, []);
 
-  return { socket: socketRef.current, connected };
-}
+  return (
+    <SocketContext.Provider value={{ socket: socketRef.current, connected }}>
+      {children}
+    </SocketContext.Provider>
+  );
+};
+
+export const useSocket = () => {
+  const context = useContext(SocketContext);
+  if (!context) {
+    throw new Error("useSocket must be used within a SocketProvider");
+  }
+  return context;
+};

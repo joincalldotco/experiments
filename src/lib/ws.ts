@@ -169,22 +169,52 @@ const socketIoConnection = async (io: SocketIOServer) => {
         const peer = currentRoom.getPeer(peerId);
         const transport = peer?.transports.find((t) => t.id === transportId);
         if (!transport) return callback({ error: "Transport not found" });
-        const producerPeer = Array.from(currentRoom.peers.values()).find((p) =>
-          p.producers.some((pr) => pr.id === producerId)
-        );
-        const producer = producerPeer?.producers.find(
-          (pr) => pr.id === producerId
-        );
+
+        // Check if this is a screen share producer
+        let producer;
+        let isScreenShare = false;
+
+        // First check for screen share producers
+        for (const p of currentRoom.peers.values()) {
+          if (
+            p.screenShareProducer &&
+            p.screenShareProducer.id === producerId
+          ) {
+            producer = p.screenShareProducer;
+            isScreenShare = true;
+            break;
+          }
+        }
+
+        // If not found in screen shares, check regular producers
+        if (!producer) {
+          const producerPeer = Array.from(currentRoom.peers.values()).find(
+            (p) => p.producers.some((pr) => pr.id === producerId)
+          );
+          producer = producerPeer?.producers.find((pr) => pr.id === producerId);
+        }
+
         if (!producer) return callback({ error: "Producer not found" });
         if (!currentRoom.router.canConsume({ producerId, rtpCapabilities })) {
           return callback({ error: "Cannot consume" });
         }
+
+        // Create consumer with appropriate settings
         const consumer = await transport.consume({
           producerId,
           rtpCapabilities,
           paused: false,
+          // Add app data to identify screen share consumers
+          appData: {
+            peerId,
+            mediaType: isScreenShare ? "screenShare" : "webcam",
+            mediaPeerId: producer.appData?.peerId,
+          },
         });
+
         peer?.consumers.push(consumer);
+
+        // Return additional information for screen shares
         callback({
           id: consumer.id,
           producerId,
@@ -192,6 +222,7 @@ const socketIoConnection = async (io: SocketIOServer) => {
           rtpParameters: consumer.rtpParameters,
           type: consumer.type,
           producerPaused: consumer.producerPaused,
+          appData: isScreenShare ? { mediaType: "screenShare" } : undefined,
         });
       }
     );
@@ -225,6 +256,23 @@ const socketIoConnection = async (io: SocketIOServer) => {
     const cleanupPeer = async () => {
       if (!currentRoom) return;
 
+      // Check if the peer was sharing screen and notify others if so
+      const peer = currentRoom.getPeer(peerId);
+      if (peer && peer.screenShareProducer) {
+        console.log(
+          `[Room ${currentRoom.id}] Peer ${peerId} disconnected while screen sharing`
+        );
+
+        // Notify all other users in the room that the screen share has ended
+        socket.to(currentRoom.id).emit("screenShareStopped", {
+          userId: peerId,
+        });
+
+        // Close the screen share producer
+        await peer.screenShareProducer.close();
+        currentRoom.removeScreenShareProducer(peerId);
+      }
+
       currentRoom.removePeer(peerId);
       socket.to(currentRoom.id).emit("userLeft", { userId: peerId });
 
@@ -246,8 +294,6 @@ const socketIoConnection = async (io: SocketIOServer) => {
         db.data!.rooms = db.data!.rooms.filter((r) => r.id !== currentRoom!.id);
         await db.write();
       }
-
-      await cleanupPeer();
     };
 
     socket.on("getRouterRtpCapabilities", (data, callback) => {
@@ -283,6 +329,115 @@ const socketIoConnection = async (io: SocketIOServer) => {
       );
 
       callback(producersWithUsers);
+    });
+
+    socket.on(
+      "startScreenShare",
+      async ({ transportId, rtpParameters }, callback) => {
+        console.log("startScreenShare", {
+          transportId,
+          rtpParameters,
+          currentRoom,
+        });
+        if (!currentRoom) return callback({ error: "No room joined" });
+        const peer = currentRoom.getPeer(peerId);
+        const transport = peer?.transports.find((t) => t.id === transportId);
+
+        if (!transport) return callback({ error: "Transport not found" });
+
+        try {
+          // Enhance RTP parameters with screen sharing specific settings
+          const enhancedRtpParameters = {
+            ...rtpParameters,
+            // Apply screen sharing specific encoding settings if they don't exist
+            encodings:
+              rtpParameters.encodings ||
+              config.mediasoup.screenSharing.encodings,
+          };
+
+          // Create a producer with screen share specific settings
+          const screenShareProducer = await transport.produce({
+            kind: "video",
+            rtpParameters: enhancedRtpParameters,
+            appData: {
+              mediaType: "screenShare",
+              peerId,
+              codecOptions: config.mediasoup.screenSharing.codecOptions,
+            },
+          });
+
+          // Store the screen share producer in the peer object
+          currentRoom.addScreenShareProducer(peerId, screenShareProducer);
+
+          console.log(
+            `[Room ${currentRoom.id}] Peer ${peerId} started screen sharing`,
+            {
+              producerId: screenShareProducer.id,
+              encodings: enhancedRtpParameters.encodings,
+            }
+          );
+
+          // Notify all other users in the room about the new screen share
+          socket.to(currentRoom.id).emit("newScreenShare", {
+            producerId: screenShareProducer.id,
+            userId: peerId,
+            appData: { mediaType: "screenShare" },
+          });
+
+          callback({
+            id: screenShareProducer.id,
+            codecOptions: config.mediasoup.screenSharing.codecOptions,
+          });
+        } catch (error) {
+          console.error("Error starting screen share:", error);
+          callback({ error: "Could not start screen sharing" });
+        }
+      }
+    );
+
+    socket.on("stopScreenShare", async (data, callback) => {
+      if (!currentRoom) return callback({ error: "No room joined" });
+      const peer = currentRoom.getPeer(peerId);
+
+      if (!peer || !peer.screenShareProducer) {
+        return callback({ error: "No active screen share found" });
+      }
+
+      try {
+        // Close the screen share producer
+        await peer.screenShareProducer.close();
+
+        // Remove the screen share producer reference
+        currentRoom.removeScreenShareProducer(peerId);
+
+        console.log(
+          `[Room ${currentRoom.id}] Peer ${peerId} stopped screen sharing`
+        );
+
+        // Notify all other users in the room that the screen share has ended
+        socket.to(currentRoom.id).emit("screenShareStopped", {
+          userId: peerId,
+        });
+
+        callback({ stopped: true });
+      } catch (error) {
+        console.error("Error stopping screen share:", error);
+        callback({ error: "Could not stop screen sharing" });
+      }
+    });
+
+    socket.on("getActiveScreenShares", (data, callback) => {
+      if (!currentRoom) return callback([]);
+
+      const screenShares = currentRoom.getScreenShareProducers();
+      console.log(
+        `[Room ${currentRoom.id}] Getting active screen shares for peer ${peerId}`,
+        {
+          screenShares,
+        }
+      );
+
+      callback(screenShares);
     });
 
     socket.on("disconnect", async () => {

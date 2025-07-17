@@ -7,7 +7,7 @@ import type {
   RtpCapabilities,
   RtpParameters,
 } from "mediasoup-client/types";
-import { useSocket } from "./useSocket";
+import { useSocket } from "../providers/socket";
 
 interface JoinResponse {
   producers: {

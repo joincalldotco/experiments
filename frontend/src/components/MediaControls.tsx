@@ -1,18 +1,38 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "./ui/button";
+import { useScreenShare } from "../hooks/useScreenShare";
+import { Transport } from "mediasoup-client/types";
+import { toast } from "sonner";
 
 interface MediaControlsProps {
   localStream: MediaStream | null;
+  sendTransport?: Transport;
 }
 
-const MediaControls = ({ localStream }: MediaControlsProps) => {
+const MediaControls = ({ localStream, sendTransport }: MediaControlsProps) => {
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const {
+    isScreenSharing,
+    startScreenShare,
+    stopScreenShare,
+    error: screenShareError,
+  } = useScreenShare();
 
   useEffect(() => {
     localStreamRef.current = localStream;
   }, [localStream]);
+
+  useEffect(() => {
+    if (screenShareError) {
+      console.error("Screen share error:", screenShareError);
+      toast.error(screenShareError, {
+        description: "Please try again or use a different window/application",
+        duration: 5000,
+      });
+    }
+  }, [screenShareError]);
 
   const toggleCamera = () => {
     if (localStreamRef.current) {
@@ -32,8 +52,21 @@ const MediaControls = ({ localStream }: MediaControlsProps) => {
     }
   };
 
+  const handleScreenShare = async () => {
+    if (!sendTransport) {
+      console.error("Send transport not available");
+      return;
+    }
+
+    if (isScreenSharing) {
+      stopScreenShare();
+    } else {
+      await startScreenShare(sendTransport);
+    }
+  };
+
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex gap-4 rounded-lg  z-50">
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex gap-4 rounded-lg z-50">
       <Button
         variant={isCameraOn ? "default" : "outline"}
         onClick={toggleCamera}
@@ -42,6 +75,23 @@ const MediaControls = ({ localStream }: MediaControlsProps) => {
       </Button>
       <Button variant={isMicOn ? "default" : "outline"} onClick={toggleMic}>
         {isMicOn ? "Mute Mic" : "Unmute Mic"}
+      </Button>
+      <Button
+        variant={isScreenSharing ? "destructive" : "default"}
+        onClick={handleScreenShare}
+        disabled={!sendTransport}
+        className={
+          isScreenSharing ? "bg-red-500 hover:bg-red-600 relative" : "relative"
+        }
+      >
+        {isScreenSharing ? (
+          <>
+            <span className="absolute -top-2 -right-2 w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>
+            Stop Sharing
+          </>
+        ) : (
+          "Share Screen"
+        )}
       </Button>
     </div>
   );

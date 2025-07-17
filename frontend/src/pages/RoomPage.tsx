@@ -1,9 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useMediasoupClient } from "../hooks/useMediasoupClient";
+import { useScreenShare } from "../hooks/useScreenShare";
 import MediaControls from "../components/MediaControls";
 import Player from "../components/Player";
+import ScreenShareDisplay from "../components/ScreenShareDisplay";
 import type { Device } from "mediasoup-client";
+import type { AppData, Transport } from "mediasoup-client/types";
 import { Button } from "../components/ui/button";
 
 const RoomPage = () => {
@@ -17,12 +20,14 @@ const RoomPage = () => {
     createRecvTransport,
     produce,
     localStream,
-    setLocalStream, // Make sure this exists in the hook
+    setLocalStream,
     connected,
     socket,
     consume,
     deviceRef,
   } = useMediasoupClient();
+
+  const { onNewScreenShare, onScreenShareStopped } = useScreenShare();
 
   const [roomId, setRoomId] = useState(searchParams.get("room") || "");
   const [joined, setJoined] = useState(false);
@@ -84,6 +89,12 @@ const RoomPage = () => {
     });
   };
 
+  const [sendTransport, setSendTransport] = useState<Transport | null>(null);
+
+  const [screenShares, setScreenShares] = useState<Record<string, MediaStream>>(
+    {}
+  );
+
   useEffect(() => {
     if (!socket || !joined) return;
 
@@ -99,14 +110,69 @@ const RoomPage = () => {
       });
     };
 
+    const handleNewScreenShare = async ({
+      producerId,
+      userId,
+      appData,
+    }: any) => {
+      console.log("New screen share detected:", {
+        producerId,
+        userId,
+        appData,
+      });
+
+      if (consumedProducersRef.current.has(producerId)) return;
+
+      await consume(
+        producerId,
+        currentDevice.rtpCapabilities,
+        (stream: MediaStream) => {
+          consumedProducersRef.current.add(producerId);
+
+          setScreenShares((prev) => ({
+            ...prev,
+            [userId]: stream,
+          }));
+        }
+      );
+    };
+
+    const handleScreenShareStopped = ({ userId }: { userId: string }) => {
+      console.log("Screen share stopped:", userId);
+
+      setScreenShares((prev) => {
+        const newScreenShares = { ...prev };
+        if (newScreenShares[userId]) {
+          newScreenShares[userId].getTracks().forEach((track) => track.stop());
+          delete newScreenShares[userId];
+        }
+        return newScreenShares;
+      });
+    };
+
     socket.on("newProducer", handleNewProducer);
     socket.on("userLeft", handleUserLeft);
+
+    const cleanupNewScreenShare = onNewScreenShare(handleNewScreenShare);
+    const cleanupScreenShareStopped = onScreenShareStopped(
+      handleScreenShareStopped
+    );
 
     return () => {
       socket.off("newProducer", handleNewProducer);
       socket.off("userLeft", handleUserLeft);
+      cleanupNewScreenShare();
+      cleanupScreenShareStopped();
     };
-  }, [socket, joined, consumeAndAddTrack, deviceRef]);
+  }, [
+    socket,
+    joined,
+    consumeAndAddTrack,
+    deviceRef,
+    onNewScreenShare,
+    onScreenShareStopped,
+    consume,
+  ]);
 
   const handleJoin = async () => {
     if (!roomId || !socket) return;
@@ -126,7 +192,8 @@ const RoomPage = () => {
       });
 
       const mediasoupDevice = await loadDevice(rtpCapabilities as any);
-      await createSendTransport();
+      const transport = await createSendTransport();
+      setSendTransport(transport as Transport);
       await createRecvTransport();
       await produce(stream);
 
@@ -140,6 +207,29 @@ const RoomPage = () => {
           device: mediasoupDevice,
         });
       }
+
+      socket.emit("getActiveScreenShares", {}, (screenShares: any[]) => {
+        if (screenShares && screenShares.length > 0) {
+          console.log("Active screen shares in room:", screenShares);
+
+          screenShares.forEach(async ({ producerId, userId }) => {
+            if (consumedProducersRef.current.has(producerId)) return;
+
+            await consume(
+              producerId,
+              mediasoupDevice.rtpCapabilities,
+              (stream: MediaStream) => {
+                consumedProducersRef.current.add(producerId);
+
+                setScreenShares((prev) => ({
+                  ...prev,
+                  [userId]: stream,
+                }));
+              }
+            );
+          });
+        }
+      });
     } catch (error) {
       console.error("Error joining room:", error);
       setJoined(false);
@@ -184,6 +274,12 @@ const RoomPage = () => {
               Debug
             </Button>
           </div>
+          {Object.keys(screenShares).length > 0 && (
+            <div className="w-full mb-4">
+              <ScreenShareDisplay streams={screenShares} />
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4 mt-4">
             {localStream && <Player stream={localStream} name="You" you />}
             {Object.entries(remoteStreams).map(([userId, stream]) => (
@@ -197,7 +293,12 @@ const RoomPage = () => {
           </div>
         </>
       )}
-      {joined && localStream && <MediaControls localStream={localStream} />}
+      {joined && localStream && (
+        <MediaControls
+          localStream={localStream}
+          sendTransport={sendTransport as Transport<AppData>}
+        />
+      )}
     </div>
   );
 };

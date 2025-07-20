@@ -44,10 +44,8 @@ import { createWorkers } from "./lib/worker";
 const main = async () => {
   const app = express();
 
-  // Enable CORS for Express
   app.use(cors());
 
-  // Create workers when server starts
   await createWorkers();
 
   const server = http.createServer(app);

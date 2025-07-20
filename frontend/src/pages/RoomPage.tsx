@@ -28,7 +28,7 @@ const RoomPage = () => {
   const [joined, setJoined] = useState(false);
   const consumedProducersRef = useRef<Set<string>>(new Set());
   const [remoteStreams, setRemoteStreams] = useState<
-    Record<string, MediaStream[]>
+    Record<string, MediaStream>
   >({});
 
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -52,23 +52,28 @@ const RoomPage = () => {
         device.rtpCapabilities,
         (stream: MediaStream) => {
           consumedProducersRef.current.add(producerId);
-          // En vez de añadir el track al mismo MediaStream, añadimos el nuevo stream al array
+
           setRemoteStreams((prevStreams) => {
             const newStreams = { ...prevStreams };
+
             if (!newStreams[userId]) {
-              newStreams[userId] = [stream];
+              const combinedStream = new MediaStream();
+              stream
+                .getTracks()
+                .forEach((track) => combinedStream.addTrack(track));
+              newStreams[userId] = combinedStream;
             } else {
-              // Evitar duplicados por si acaso
-              const alreadyExists = newStreams[userId].some((s) => {
-                // Compara por id de track
-                const trackIds = s.getTracks().map((t) => t.id);
-                const newTrackIds = stream.getTracks().map((t) => t.id);
-                return trackIds.some((id) => newTrackIds.includes(id));
+              const existingStream = newStreams[userId];
+              stream.getTracks().forEach((track) => {
+                const trackExists = existingStream
+                  .getTracks()
+                  .some((existingTrack) => existingTrack.id === track.id);
+                if (!trackExists) {
+                  existingStream.addTrack(track);
+                }
               });
-              if (!alreadyExists) {
-                newStreams[userId] = [...newStreams[userId], stream];
-              }
             }
+
             return newStreams;
           });
         }
@@ -81,9 +86,7 @@ const RoomPage = () => {
     setRemoteStreams((prevStreams) => {
       const newStreams = { ...prevStreams };
       if (newStreams[userId]) {
-        newStreams[userId].forEach((stream) => {
-          stream.getTracks().forEach((track) => track.stop());
-        });
+        newStreams[userId].getTracks().forEach((track) => track.stop());
         delete newStreams[userId];
       }
       return newStreams;
@@ -192,21 +195,23 @@ const RoomPage = () => {
           </div>
           <div className="grid grid-cols-2 gap-4 mt-4">
             {localStream && <Player stream={localStream} name="You" you />}
-            {Object.entries(remoteStreams).map(([userId, streams]) =>
-              streams.map((stream, idx) => (
-                <Player
-                  key={userId + "-" + idx}
-                  stream={stream}
-                  name={`User ${userId}${streams.length > 1 ? ` (${idx + 1})` : ""}`}
-                  you={false}
-                />
-              ))
-            )}
+            {Object.entries(remoteStreams).map(([userId, stream]) => (
+              <Player
+                key={userId}
+                stream={stream}
+                name={`User ${userId}`}
+                you={false}
+              />
+            ))}
           </div>
         </>
       )}
       {joined && localStream && (
-        <MediaControls localStream={localStream} produce={produce} joined={joined} />
+        <MediaControls
+          localStream={localStream}
+          produce={produce}
+          joined={joined}
+        />
       )}
     </div>
   );

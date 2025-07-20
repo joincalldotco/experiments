@@ -14,14 +14,14 @@ export interface RoomPeer {
   consumers: Consumer[];
   dataProducers: DataProducer[];
   dataConsumers: DataConsumer[];
+  micActive?: boolean;
+  camActive?: boolean;
+  isShareScreen?: boolean;
 }
 
 export class Room {
   public peers: Map<string, RoomPeer> = new Map();
-  constructor(
-    public id: string,
-    public router: Router,
-  ) {}
+  constructor(public id: string, public router: Router) {}
 
   addPeer(peerId: string) {
     if (!this.peers.has(peerId)) {
@@ -43,7 +43,7 @@ export class Room {
         userId: peer.id,
         producerId: producer.id,
         kind: producer.kind,
-      })),
+      }))
     );
   }
 

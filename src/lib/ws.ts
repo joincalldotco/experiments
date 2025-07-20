@@ -72,11 +72,19 @@ const socketIoConnection = async (io: SocketIOServer) => {
       // Add user to db
       await db.read();
       let dbRoom = db.data!.rooms.find((r) => r.id === roomId);
-      if (dbRoom && !dbRoom.users.includes(peerId)) {
-        dbRoom.users.push(peerId);
+      if (dbRoom && !dbRoom.users.some((u) => u.userId === peerId)) {
+        dbRoom.users.push({
+          userId: peerId,
+          micActive: true,
+          camActive: true,
+          isShareScreen: false,
+        });
         await db.write();
       }
-      if (!db.data!.users.find((u) => u.id === peerId)) {
+      if (
+        !db.data!.users.find((u) => u.id === peerId) &&
+        !db.data!.users.find((u) => u.id === peerId)
+      ) {
         db.data!.users.push({ id: peerId, name: peerId });
         await db.write();
       }
@@ -91,6 +99,18 @@ const socketIoConnection = async (io: SocketIOServer) => {
       currentRoom.getPeer(peerId)?.transports.push(transport);
       callback(params);
     });
+
+    socket.on(
+      "updateUser",
+      async ({ userId, micActive, camActive, isShareScreen }, callback) => {
+        if (!currentRoom) return callback({ error: "No room joined" });
+        const user = currentRoom.getPeer(userId);
+        if (!user) return callback({ error: "User not found" });
+        user.micActive = micActive;
+        user.camActive = camActive;
+        user.isShareScreen = isShareScreen;
+      }
+    );
 
     socket.on(
       "connectWebRtcTransport",
@@ -231,11 +251,13 @@ const socketIoConnection = async (io: SocketIOServer) => {
       await db.read();
       const dbRoom = db.data!.rooms.find((r) => r.id === currentRoom!.id);
       if (dbRoom) {
-        dbRoom.users = dbRoom.users.filter((u) => u !== peerId);
+        dbRoom.users = dbRoom.users.filter((u) => u.userId !== peerId);
         await db.write();
       }
 
-      const stillInRoom = db.data!.rooms.some((r) => r.users.includes(peerId));
+      const stillInRoom = db.data!.rooms.some((r) =>
+        r.users.some((u) => u.userId === peerId)
+      );
       if (!stillInRoom) {
         db.data!.users = db.data!.users.filter((u) => u.id !== peerId);
         await db.write();

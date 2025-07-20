@@ -2,7 +2,13 @@ import { Low } from "lowdb";
 import { JSONFile } from "lowdb/node";
 
 export type User = { id: string; name: string };
-export type Room = { id: string; users: string[] };
+export type RoomUser = {
+  userId: string;
+  micActive: boolean;
+  camActive: boolean;
+  isShareScreen: boolean;
+};
+export type Room = { id: string; users: RoomUser[] };
 
 export type Data = {
   users: User[];

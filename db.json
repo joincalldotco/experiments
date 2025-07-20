@@ -1,105 +1,30 @@
 {
   "users": [
     {
-      "id": "A-SnIqpIUoWVXdBVAAAt",
-      "name": "A-SnIqpIUoWVXdBVAAAt"
+      "id": "PliRuUyHU-8YX0j2AAAH",
+      "name": "PliRuUyHU-8YX0j2AAAH"
     },
     {
-      "id": "qd389rXIN7oLGu0-AAAD",
-      "name": "qd389rXIN7oLGu0-AAAD"
-    },
-    {
-      "id": "DQMVzTgr-01YHCJ5AAAH",
-      "name": "DQMVzTgr-01YHCJ5AAAH"
-    },
-    {
-      "id": "fs32DcRI372yDG6yAAA7",
-      "name": "fs32DcRI372yDG6yAAA7"
-    },
-    {
-      "id": "TvYD_6QnZLny1fIHAAAD",
-      "name": "TvYD_6QnZLny1fIHAAAD"
-    },
-    {
-      "id": "VHab3_91X2-2v8jlAAAH",
-      "name": "VHab3_91X2-2v8jlAAAH"
-    },
-    {
-      "id": "Qcecoqdz8MrbZOx4AAAj",
-      "name": "Qcecoqdz8MrbZOx4AAAj"
-    },
-    {
-      "id": "zYAm24Xcd36bvJrdAAB1",
-      "name": "zYAm24Xcd36bvJrdAAB1"
-    },
-    {
-      "id": "0EWSWr-eIUJ-mkSrAACz",
-      "name": "0EWSWr-eIUJ-mkSrAACz"
-    },
-    {
-      "id": "kYzY_FzRNudndjANAACv",
-      "name": "kYzY_FzRNudndjANAACv"
-    },
-    {
-      "id": "XIo4ZkSi5b7QlC1JAAA7",
-      "name": "XIo4ZkSi5b7QlC1JAAA7"
-    },
-    {
-      "id": "Z9FRXxkzc7tahvcKAAA_",
-      "name": "Z9FRXxkzc7tahvcKAAA_"
-    },
-    {
-      "id": "1Ktd5psnNPb3uiNGAAAD",
-      "name": "1Ktd5psnNPb3uiNGAAAD"
-    },
-    {
-      "id": "18-ypzv3uev-NW6oAAAH",
-      "name": "18-ypzv3uev-NW6oAAAH"
-    },
-    {
-      "id": "qEDEiahDjQBOKSbAAAAH",
-      "name": "qEDEiahDjQBOKSbAAAAH"
-    },
-    {
-      "id": "YDMGJj3906SxFsRdAAAF",
-      "name": "YDMGJj3906SxFsRdAAAF"
-    },
-    {
-      "id": "yYcOz_DIVrz3t6tpAAAH",
-      "name": "yYcOz_DIVrz3t6tpAAAH"
-    },
-    {
-      "id": "AaUtqTdhAcYlKJIwAAAL",
-      "name": "AaUtqTdhAcYlKJIwAAAL"
-    },
-    {
-      "id": "YJdO-JbiCkKMaHFnAAAP",
-      "name": "YJdO-JbiCkKMaHFnAAAP"
-    },
-    {
-      "id": "IGuFHZ8QOQBAZRqxAAAT",
-      "name": "IGuFHZ8QOQBAZRqxAAAT"
-    },
-    {
-      "id": "7kdS8s6JZMdX9kvaAAAL",
-      "name": "7kdS8s6JZMdX9kvaAAAL"
-    },
-    {
-      "id": "_0opmJ30HV0PW55XAAAb",
-      "name": "_0opmJ30HV0PW55XAAAb"
+      "id": "KiD5udBvGN_Umd-pAAAF",
+      "name": "KiD5udBvGN_Umd-pAAAF"
     }
   ],
   "rooms": [
     {
-      "id": "1234",
-      "users": [
-        "fs32DcRI372yDG6yAAA7"
-      ]
-    },
-    {
       "id": "username",
       "users": [
-        "7kdS8s6JZMdX9kvaAAAL"
+        {
+          "userId": "PliRuUyHU-8YX0j2AAAH",
+          "micActive": true,
+          "camActive": true,
+          "isSpeaker": false
+        },
+        {
+          "userId": "KiD5udBvGN_Umd-pAAAF",
+          "micActive": true,
+          "camActive": true,
+          "isSpeaker": false
+        }
       ]
     }
   ]

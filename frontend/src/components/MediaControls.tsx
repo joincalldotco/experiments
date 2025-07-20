@@ -8,10 +8,10 @@ interface MediaControlsProps {
   joined: boolean;
 }
 
-const MediaControls = ({ localStream, produce, joined }: MediaControlsProps) => {
+const MediaControls = ({ localStream, produce }: MediaControlsProps) => {
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
-  const [isScreenSharing, setIsScreenSharing] = useState(false); // Nuevo estado
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
   const localStreamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
@@ -36,18 +36,14 @@ const MediaControls = ({ localStream, produce, joined }: MediaControlsProps) => 
     }
   };
 
-  // Nueva función para manejar el click en compartir pantalla
   const handleScreenShare = async () => {
     if (!isScreenSharing) {
       try {
-        // Captura la pantalla
         const screenStream = await navigator.mediaDevices.getDisplayMedia({
-          video: true
+          video: true,
         });
-        // Produce el stream de pantalla
         await produce(screenStream);
         setIsScreenSharing(true);
-        // Detecta si el usuario detiene el screen share desde el navegador
         const [screenTrack] = screenStream.getVideoTracks();
         screenTrack.onended = () => {
           setIsScreenSharing(false);
@@ -57,11 +53,12 @@ const MediaControls = ({ localStream, produce, joined }: MediaControlsProps) => 
         setIsScreenSharing(false);
       }
     } else {
-      // Si ya está compartiendo, detener el screen share
-      // Buscar el track de pantalla y detenerlo
       if (localStreamRef.current) {
         localStreamRef.current.getVideoTracks().forEach((track) => {
-          if (track.label.toLowerCase().includes("screen") || track.label.toLowerCase().includes("display")) {
+          if (
+            track.label.toLowerCase().includes("screen") ||
+            track.label.toLowerCase().includes("display")
+          ) {
             track.stop();
           }
         });

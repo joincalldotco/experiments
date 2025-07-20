@@ -1,4 +1,6 @@
+import { Camera, CameraOff, Mic, MicOff, User } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { cn } from "../lib/utils";
 
 interface PlayerProps {
   stream: MediaStream;
@@ -6,6 +8,9 @@ interface PlayerProps {
   you?: boolean;
   audioStream?: MediaStream;
   isScreenShare?: boolean;
+  micActive?: boolean;
+  camActive?: boolean;
+  isShareScreen?: boolean;
 }
 
 const Player = ({
@@ -14,10 +19,19 @@ const Player = ({
   you = false,
   audioStream,
   isScreenShare = false,
+  micActive = false,
+  camActive = false,
 }: PlayerProps) => {
+  console.log({
+    you,
+    name,
+    micActive,
+    camActive,
+    isScreenShare,
+  });
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
@@ -54,12 +68,17 @@ const Player = ({
   }, [audioStream]);
 
   return (
-    <div className={`relative ${isScreenShare ? "col-span-2" : ""}`}>
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-lg",
+        isScreenShare ? "col-span-2" : ""
+      )}
+    >
       <video
         ref={videoRef}
         autoPlay
         playsInline
-        muted={you} // Only mute local video to prevent echo
+        muted={you}
         className={`rounded-lg shadow-lg bg-black ${
           isScreenShare
             ? "w-full h-[480px] object-contain"
@@ -67,13 +86,39 @@ const Player = ({
         }`}
       />
       {audioStream && <audio ref={audioRef} autoPlay playsInline />}
+      {you ? null : camActive ? null : (
+        <div className="absolute inset-0 z-50 w-full h-full bg-black flex items-center justify-center">
+          <div className="size-20 bg-background/10 rounded-full flex items-center justify-center">
+            <User className="size-10 text-white" />
+          </div>
+        </div>
+      )}
       <div
-        className={`absolute bottom-2 left-2 px-2 py-1 rounded text-white text-sm ${
+        className={cn(
+          "absolute bottom-0 left-0 px-2 py-1 text-white text-sm flex items-center justify-between w-full",
           isScreenShare ? "bg-blue-500/70" : "bg-black/50"
-        }`}
+        )}
       >
-        {isScreenShare ? "📺 " : ""}
-        {name}
+        <span className="flex items-center gap-2">
+          {isScreenShare ? "📺 " : ""}
+          {name}
+        </span>
+        <span className="flex items-center gap-2">
+          {you ? null : (
+            <>
+              {micActive ? (
+                <Mic className="size-4" />
+              ) : (
+                <MicOff className="size-4" />
+              )}
+              {camActive ? (
+                <Camera className="size-4" />
+              ) : (
+                <CameraOff className="size-4" />
+              )}
+            </>
+          )}
+        </span>
       </div>
     </div>
   );

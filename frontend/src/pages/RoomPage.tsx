@@ -7,11 +7,14 @@ import Player from "../components/Player";
 import ScreenShareDisplay from "../components/ScreenShareDisplay";
 import type { Device } from "mediasoup-client";
 import type { AppData, Transport } from "mediasoup-client/types";
+import { toast } from "sonner";
 import { Button } from "../components/ui/button";
+import { useUsers } from "../providers/users";
 
 const RoomPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { users } = useUsers();
 
   const {
     joinRoom,
@@ -42,7 +45,7 @@ const RoomPage = () => {
     async ({
       producerId,
       userId,
-      kind,
+
       device,
     }: {
       producerId: string;
@@ -79,6 +82,7 @@ const RoomPage = () => {
   );
 
   const handleUserLeft = ({ userId }: { userId: string }) => {
+    console.log("User left:", userId);
     setRemoteStreams((prevStreams) => {
       const newStreams = { ...prevStreams };
       if (newStreams[userId]) {
@@ -87,6 +91,7 @@ const RoomPage = () => {
       }
       return newStreams;
     });
+    toast.info(`User ${userId} has left the room.`);
   };
 
   const [sendTransport, setSendTransport] = useState<Transport | null>(null);
@@ -150,8 +155,38 @@ const RoomPage = () => {
       });
     };
 
+    const handleUserUpdated = ({
+      userId,
+      micActive,
+      camActive,
+      isShareScreen,
+    }: any) => {
+      console.log("User updated:", {
+        userId,
+        micActive,
+        camActive,
+        isShareScreen,
+      });
+      setRemoteStreams((prevStreams) => {
+        const newStreams = { ...prevStreams };
+        if (newStreams[userId]) {
+          newStreams[userId].getTracks().forEach((track) => {
+            if (track.kind === "audio") {
+              track.enabled = micActive;
+            } else if (track.kind === "video") {
+              track.enabled = camActive;
+            }
+          });
+        }
+
+        console.log("newStreams", newStreams);
+        return newStreams;
+      });
+    };
+
     socket.on("newProducer", handleNewProducer);
     socket.on("userLeft", handleUserLeft);
+    socket.on("userUpdated", handleUserUpdated);
 
     const cleanupNewScreenShare = onNewScreenShare(handleNewScreenShare);
     const cleanupScreenShareStopped = onScreenShareStopped(
@@ -182,7 +217,7 @@ const RoomPage = () => {
         video: true,
       });
       localStreamRef.current = stream;
-      setLocalStream?.(stream); // Ensure hook exposes this
+      setLocalStream?.(stream);
 
       const { producers: existingProducers } = await joinRoom(roomId);
       setSearchParams({ room: roomId });
@@ -282,14 +317,21 @@ const RoomPage = () => {
 
           <div className="grid grid-cols-2 gap-4 mt-4">
             {localStream && <Player stream={localStream} name="You" you />}
-            {Object.entries(remoteStreams).map(([userId, stream]) => (
-              <Player
-                key={userId}
-                stream={stream}
-                name={`User ${userId}`}
-                you={false}
-              />
-            ))}
+            {Object.entries(remoteStreams).map(([userId, stream]) => {
+              const user = users.find((u) => u.id === userId);
+
+              return (
+                <Player
+                  key={userId}
+                  stream={stream}
+                  name={`User ${userId}`}
+                  micActive={user?.micActive}
+                  camActive={user?.camActive}
+                  isShareScreen={user?.isShareScreen}
+                  you={false}
+                />
+              );
+            })}
           </div>
         </>
       )}

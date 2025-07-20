@@ -3,6 +3,7 @@ import { Button } from "./ui/button";
 import { useScreenShare } from "../hooks/useScreenShare";
 import { Transport } from "mediasoup-client/types";
 import { toast } from "sonner";
+import { useSocket } from "../providers/socket";
 
 interface MediaControlsProps {
   localStream: MediaStream | null;
@@ -12,7 +13,9 @@ interface MediaControlsProps {
 const MediaControls = ({ localStream, sendTransport }: MediaControlsProps) => {
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
+  const { socket, connected } = useSocket();
   const localStreamRef = useRef<MediaStream | null>(null);
+
   const {
     isScreenSharing,
     startScreenShare,
@@ -35,20 +38,34 @@ const MediaControls = ({ localStream, sendTransport }: MediaControlsProps) => {
   }, [screenShareError]);
 
   const toggleCamera = () => {
+    if (!connected || !socket) return;
     if (localStreamRef.current) {
       localStreamRef.current.getVideoTracks().forEach((track) => {
         track.enabled = !isCameraOn;
       });
       setIsCameraOn((prev) => !prev);
+      socket.emit("updateUser", {
+        userId: socket.id,
+        micActive: isMicOn,
+        camActive: !isCameraOn,
+        isShareScreen: isScreenSharing,
+      });
     }
   };
 
   const toggleMic = () => {
+    if (!connected || !socket) return;
     if (localStreamRef.current) {
       localStreamRef.current.getAudioTracks().forEach((track) => {
         track.enabled = !isMicOn;
       });
       setIsMicOn((prev) => !prev);
+      socket.emit("updateUser", {
+        userId: socket.id,
+        micActive: !isMicOn,
+        camActive: isCameraOn,
+        isShareScreen: isScreenSharing,
+      });
     }
   };
 

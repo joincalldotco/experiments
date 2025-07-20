@@ -93,7 +93,6 @@ export function useMediasoupClient() {
     }
   }, []);
 
-  // Create send transport
   const createSendTransport = useCallback(async () => {
     if (!socket) {
       console.error("Socket not available");

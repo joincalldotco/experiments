@@ -11,7 +11,6 @@ const AUTH_TOKEN = "demo-token";
 const rooms: Map<string, Room> = new Map();
 let mediasoupWorker: Worker;
 
-// Initialize db on server start
 initDb();
 
 const socketIoConnection = async (io: SocketIOServer) => {
@@ -66,14 +65,17 @@ const socketIoConnection = async (io: SocketIOServer) => {
         Array.from(room.peers.keys())
       );
 
-      // Join the socket.io room
       socket.join(roomId);
 
-      // Add user to db
       await db.read();
       let dbRoom = db.data!.rooms.find((r) => r.id === roomId);
-      if (dbRoom && !dbRoom.users.includes(peerId)) {
-        dbRoom.users.push(peerId);
+      if (dbRoom && !dbRoom.users.some((u) => u.userId === peerId)) {
+        dbRoom.users.push({
+          userId: peerId,
+          micActive: true,
+          camActive: true,
+          isShareScreen: false,
+        });
         await db.write();
       }
       if (!db.data!.users.find((u) => u.id === peerId)) {
@@ -82,6 +84,7 @@ const socketIoConnection = async (io: SocketIOServer) => {
       }
 
       const producers = currentRoom.getProducers();
+
       callback({ producers });
     });
 
@@ -170,11 +173,9 @@ const socketIoConnection = async (io: SocketIOServer) => {
         const transport = peer?.transports.find((t) => t.id === transportId);
         if (!transport) return callback({ error: "Transport not found" });
 
-        // Check if this is a screen share producer
         let producer;
         let isScreenShare = false;
 
-        // First check for screen share producers
         for (const p of currentRoom.peers.values()) {
           if (
             p.screenShareProducer &&
@@ -186,7 +187,6 @@ const socketIoConnection = async (io: SocketIOServer) => {
           }
         }
 
-        // If not found in screen shares, check regular producers
         if (!producer) {
           const producerPeer = Array.from(currentRoom.peers.values()).find(
             (p) => p.producers.some((pr) => pr.id === producerId)
@@ -199,12 +199,10 @@ const socketIoConnection = async (io: SocketIOServer) => {
           return callback({ error: "Cannot consume" });
         }
 
-        // Create consumer with appropriate settings
         const consumer = await transport.consume({
           producerId,
           rtpCapabilities,
           paused: false,
-          // Add app data to identify screen share consumers
           appData: {
             peerId,
             mediaType: isScreenShare ? "screenShare" : "webcam",
@@ -214,7 +212,6 @@ const socketIoConnection = async (io: SocketIOServer) => {
 
         peer?.consumers.push(consumer);
 
-        // Return additional information for screen shares
         callback({
           id: consumer.id,
           producerId,
@@ -256,19 +253,16 @@ const socketIoConnection = async (io: SocketIOServer) => {
     const cleanupPeer = async () => {
       if (!currentRoom) return;
 
-      // Check if the peer was sharing screen and notify others if so
       const peer = currentRoom.getPeer(peerId);
       if (peer && peer.screenShareProducer) {
         console.log(
           `[Room ${currentRoom.id}] Peer ${peerId} disconnected while screen sharing`
         );
 
-        // Notify all other users in the room that the screen share has ended
         socket.to(currentRoom.id).emit("screenShareStopped", {
           userId: peerId,
         });
 
-        // Close the screen share producer
         await peer.screenShareProducer.close();
         currentRoom.removeScreenShareProducer(peerId);
       }
@@ -279,11 +273,13 @@ const socketIoConnection = async (io: SocketIOServer) => {
       await db.read();
       const dbRoom = db.data!.rooms.find((r) => r.id === currentRoom!.id);
       if (dbRoom) {
-        dbRoom.users = dbRoom.users.filter((u) => u !== peerId);
+        dbRoom.users = dbRoom.users.filter((u) => u.userId !== peerId);
         await db.write();
       }
 
-      const stillInRoom = db.data!.rooms.some((r) => r.users.includes(peerId));
+      const stillInRoom = db.data!.rooms.some((r) =>
+        r.users.some((u) => u.userId === peerId)
+      );
       if (!stillInRoom) {
         db.data!.users = db.data!.users.filter((u) => u.id !== peerId);
         await db.write();
@@ -303,7 +299,6 @@ const socketIoConnection = async (io: SocketIOServer) => {
 
     socket.on("getRoomProducers", (data, callback) => {
       if (!currentRoom) return callback([]);
-      // Return all producer IDs except the current user's
       const producerIds = Array.from(currentRoom.peers.values())
         .filter((p) => p.id !== peerId)
         .flatMap((p) => p.producers.map((pr) => pr.id));
@@ -332,6 +327,44 @@ const socketIoConnection = async (io: SocketIOServer) => {
     });
 
     socket.on(
+      "updateUser",
+      async ({ userId, micActive, camActive, isShareScreen }, callback) => {
+        if (!currentRoom) {
+          if (callback) callback({ error: "No room joined" });
+          return;
+        }
+        const user = currentRoom.getPeer(userId);
+
+        if (!user) {
+          if (callback) callback({ error: "User not found" });
+          return;
+        }
+        user.micActive = micActive;
+        user.camActive = camActive;
+        user.isShareScreen = isShareScreen;
+        await db.read();
+        const dbRoom = db.data!.rooms.find((r) => r.id === currentRoom!.id);
+        if (dbRoom) {
+          dbRoom.users = dbRoom.users.map((u) =>
+            u.userId === userId
+              ? { ...u, micActive, camActive, isShareScreen }
+              : u
+          );
+          await db.write();
+        }
+
+        socket.to(currentRoom.id).emit("userUpdated", {
+          userId,
+          micActive,
+          camActive,
+          isShareScreen,
+        });
+
+        if (callback) callback({ success: true });
+      }
+    );
+
+    socket.on(
       "startScreenShare",
       async ({ transportId, rtpParameters }, callback) => {
         console.log("startScreenShare", {
@@ -346,16 +379,13 @@ const socketIoConnection = async (io: SocketIOServer) => {
         if (!transport) return callback({ error: "Transport not found" });
 
         try {
-          // Enhance RTP parameters with screen sharing specific settings
           const enhancedRtpParameters = {
             ...rtpParameters,
-            // Apply screen sharing specific encoding settings if they don't exist
             encodings:
               rtpParameters.encodings ||
               config.mediasoup.screenSharing.encodings,
           };
 
-          // Create a producer with screen share specific settings
           const screenShareProducer = await transport.produce({
             kind: "video",
             rtpParameters: enhancedRtpParameters,
@@ -366,7 +396,6 @@ const socketIoConnection = async (io: SocketIOServer) => {
             },
           });
 
-          // Store the screen share producer in the peer object
           currentRoom.addScreenShareProducer(peerId, screenShareProducer);
 
           console.log(
@@ -377,7 +406,6 @@ const socketIoConnection = async (io: SocketIOServer) => {
             }
           );
 
-          // Notify all other users in the room about the new screen share
           socket.to(currentRoom.id).emit("newScreenShare", {
             producerId: screenShareProducer.id,
             userId: peerId,
@@ -404,17 +432,14 @@ const socketIoConnection = async (io: SocketIOServer) => {
       }
 
       try {
-        // Close the screen share producer
         await peer.screenShareProducer.close();
 
-        // Remove the screen share producer reference
         currentRoom.removeScreenShareProducer(peerId);
 
         console.log(
           `[Room ${currentRoom.id}] Peer ${peerId} stopped screen sharing`
         );
 
-        // Notify all other users in the room that the screen share has ended
         socket.to(currentRoom.id).emit("screenShareStopped", {
           userId: peerId,
         });
@@ -438,6 +463,18 @@ const socketIoConnection = async (io: SocketIOServer) => {
       );
 
       callback(screenShares);
+    });
+
+    socket.on("getUsersInRoom", (data, callback) => {
+      if (!currentRoom) return callback([]);
+      console.log("getUsersInRoom", currentRoom);
+      const users = Array.from(currentRoom.peers.values()).map((p) => ({
+        userId: p.id,
+        micActive: p.micActive,
+        camActive: p.camActive,
+        isShareScreen: p.isShareScreen,
+      }));
+      callback(users);
     });
 
     socket.on("disconnect", async () => {

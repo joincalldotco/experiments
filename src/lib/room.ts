@@ -14,7 +14,10 @@ export interface RoomPeer {
   consumers: Consumer[];
   dataProducers: DataProducer[];
   dataConsumers: DataConsumer[];
-  screenShareProducer?: Producer; // Track screen share producer separately
+  screenShareProducer?: Producer;
+  micActive: boolean;
+  camActive: boolean;
+  isShareScreen: boolean;
 }
 
 export class Room {
@@ -30,6 +33,9 @@ export class Room {
         consumers: [],
         dataProducers: [],
         dataConsumers: [],
+        micActive: true,
+        camActive: true,
+        isShareScreen: false,
       });
     }
     return this.peers.get(peerId)!;
